@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	// ErrInvalidProc indicates nil process.
 	ErrInvalidProc = errors.New("invalid process")
+	ErrInvalidChan = errors.New("invalid channel")
 )
 
 // Runner represents a service which can be Run.
@@ -54,6 +54,8 @@ type Daemon struct {
 }
 
 // Options holds options for creating a daemon.
+//
+// ErrChan and SigChan, if set, must have buffer greater than 1.
 type Options struct {
 	Proc    Runner
 	ErrChan chan error
@@ -61,22 +63,34 @@ type Options struct {
 }
 
 // New returns an instance of a Daemon.
-func New(opt *Options) (*Daemon, error) {
+func New(opt *Options) *Daemon {
 	if opt.Proc == nil {
-		return nil, ErrInvalidProc
+		panic(ErrInvalidProc)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	var errChan chan error
+	if opt.ErrChan != nil {
+		if cap(opt.ErrChan) < 1 {
+			panic(errors.Wrap(ErrInvalidChan, "buffer size must greater than 0"))
+		}
 
-	errChan := opt.ErrChan
-	if errChan == nil {
+		errChan = opt.ErrChan
+	} else {
 		errChan = make(chan error, 1)
 	}
 
-	sigChan := opt.SigChan
-	if sigChan == nil {
+	var sigChan chan os.Signal
+	if opt.SigChan != nil {
+		if cap(opt.SigChan) < 1 {
+			panic(errors.Wrap(ErrInvalidChan, "buffer size must greater than 0"))
+		}
+
+		sigChan = opt.SigChan
+	} else {
 		sigChan = make(chan os.Signal, 1)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Daemon{
 		ctx:     ctx,
@@ -86,12 +100,7 @@ func New(opt *Options) (*Daemon, error) {
 		sigChan: sigChan,
 	}
 
-	return d, nil
-}
-
-// SetProcess sets the process to be run.
-func (d *Daemon) SetProcess(proc Runner) {
-	d.proc = proc
+	return d
 }
 
 // Ctx returns a new context derived from the daemon.
