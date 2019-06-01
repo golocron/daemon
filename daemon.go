@@ -53,6 +53,7 @@ type Daemon struct {
 	sigChan chan os.Signal
 }
 
+// Options holds options for creating a daemon.
 type Options struct {
 	Proc    Runner
 	ErrChan chan error
