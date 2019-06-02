@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Errors returned by daemon.
 var (
 	ErrInvalidProc = errors.New("invalid process")
 	ErrInvalidChan = errors.New("invalid channel")
@@ -63,7 +64,12 @@ type Options struct {
 }
 
 // New returns an instance of a Daemon.
-func New(opt *Options) *Daemon {
+func New(proc Runner) *Daemon {
+	return NewWithOptions(&Options{Proc: proc})
+}
+
+// NewWithOptions creates an instance of Daemon based on given opt.
+func NewWithOptions(opt *Options) *Daemon {
 	if opt.Proc == nil {
 		panic(ErrInvalidProc)
 	}
