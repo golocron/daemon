@@ -63,7 +63,11 @@ type Options struct {
 }
 
 // New returns an instance of a Daemon.
-func New(opt *Options) *Daemon {
+func New(proc Runner) *Daemon {
+	return NewWithOptions(&Options{Proc: proc})
+}
+
+func NewWithOptions(opt *Options) *Daemon {
 	if opt.Proc == nil {
 		panic(ErrInvalidProc)
 	}
