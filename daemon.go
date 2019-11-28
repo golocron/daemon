@@ -38,8 +38,15 @@ type Service struct {
 	Cmd func() error
 }
 
+// NewService returns a new service created from a passed function.
+func NewService(f func() error) *Service {
+	return &Service{
+		Cmd: f,
+	}
+}
+
 // Run wraps Cmd.
-func (s Service) Run() error {
+func (s *Service) Run() error {
 	return s.Cmd()
 }
 
