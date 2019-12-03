@@ -116,11 +116,6 @@ func NewWithOptions(opt *Options) *Daemon {
 	return d
 }
 
-// Ctx returns a new context derived from the daemon.
-func (d *Daemon) Ctx() (context.Context, func()) {
-	return context.WithCancel(d.ctx)
-}
-
 // Start starts Daemon and listens for signals to stop.
 func (d *Daemon) Start() error {
 	if d.proc == nil {
