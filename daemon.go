@@ -19,7 +19,7 @@ var (
 
 // Runner represents a service which can be Run.
 type Runner interface {
-	Run() error
+	Run(ctx context.Context) error
 }
 
 // Shutdowner represents a service supporting graceful shutdown.
@@ -35,19 +35,19 @@ type Closer interface {
 
 // Service is a basic process wrapper.
 type Service struct {
-	Cmd func() error
+	Cmd func(ctx context.Context) error
 }
 
 // NewService returns a new service created from a passed function.
-func NewService(f func() error) *Service {
+func NewService(f func(ctx context.Context) error) *Service {
 	return &Service{
 		Cmd: f,
 	}
 }
 
 // Run wraps Cmd.
-func (s *Service) Run() error {
-	return s.Cmd()
+func (s *Service) Run(ctx context.Context) error {
+	return s.Cmd(ctx)
 }
 
 // Daemon represents a service to run as a daemon.
@@ -116,11 +116,6 @@ func NewWithOptions(opt *Options) *Daemon {
 	return d
 }
 
-// Ctx returns a new context derived from the daemon.
-func (d *Daemon) Ctx() (context.Context, func()) {
-	return context.WithCancel(d.ctx)
-}
-
 // Start starts Daemon and listens for signals to stop.
 func (d *Daemon) Start() error {
 	if d.proc == nil {
@@ -130,7 +125,10 @@ func (d *Daemon) Start() error {
 	signal.Notify(d.sigChan, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 
 	// Run the service.
-	go runProcess(d.errChan, d.proc)
+	rctx, rcancel := context.WithCancel(d.ctx)
+	defer rcancel()
+
+	go runProcess(rctx, d.errChan, d.proc)
 
 	// Listen channels for events.
 	select {
@@ -160,6 +158,6 @@ func (d *Daemon) Start() error {
 }
 
 // runProcess calls Run on the given Runner.
-func runProcess(errChan chan<- error, srv Runner) {
-	errChan <- srv.Run()
+func runProcess(ctx context.Context, errChan chan<- error, srv Runner) {
+	errChan <- srv.Run(ctx)
 }
