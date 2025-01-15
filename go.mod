@@ -1,5 +1,3 @@
-module github.com/golocron/daemon
+module github.com/golocron/daemon/v2
 
-go 1.12
-
-require github.com/pkg/errors v0.8.1
+go 1.22.10
