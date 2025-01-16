@@ -99,8 +99,14 @@ func TestRunWithSigCn(t *testing.T) {
 		{
 			name: "sigterm_clean",
 			given: tcGiven{
-				svc: &Service{
-					ShutTimeout: 200 * time.Millisecond,
+				svc: &ServiceClosing{
+					Service: &Service{
+						ShutTimeout: 200 * time.Millisecond,
+					},
+
+					CloseFn: func() error {
+						return errors.New("unexpected_close")
+					},
 				},
 
 				notifyFn: func(cn chan os.Signal) {
