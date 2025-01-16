@@ -5,13 +5,14 @@ COVER_OUT := cover.out
 .DEFAULT_GOAL := help
 
 test: ## Run tests
-	go test ./... -coverprofile=$(COVER_OUT)
+	go test -v -count=1 ./... -coverprofile=$(COVER_OUT)
 
 bench: ## Run benchmarks
 	go test -benchmem -bench .
 
 cover: ## Show tests coverage
 	@if [ -f $(COVER_OUT) ]; then \
+		echo "Coverage:" \
 		go tool cover -func=$(COVER_OUT); \
 		rm -f $(COVER_OUT); \
 	else \

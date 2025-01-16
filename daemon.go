@@ -1,4 +1,4 @@
-// Package daemon provides a convenient way to execute a process.
+// Package daemon provides a convenient way to run a blocking service.
 package daemon
 
 import (
@@ -7,157 +7,157 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/pkg/errors"
 )
 
-// Errors returned by daemon.
-var (
-	ErrInvalidProc = errors.New("invalid process")
-	ErrInvalidChan = errors.New("invalid channel")
-)
+// Run runs svc and awaits for signals to stop.
+//
+// If graceful shutdown fails, and svc supports force-closing, it will be closed.
+func Run(ctx context.Context, svc service) error {
+	sigs := make(chan os.Signal, 1)
 
-// Runner represents a service which can be Run.
-type Runner interface {
-	Run(ctx context.Context) error
+	return runWithSigCn(ctx, svc, sigs)
 }
 
-// Shutdowner represents a service supporting graceful shutdown.
-type Shutdowner interface {
+func runWithSigCn(ctx context.Context, svc service, sigs chan os.Signal) error {
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	rctx, rcancel := context.WithCancel(ctx)
+
+	defer func() {
+		signal.Stop(sigs)
+		rcancel()
+
+		close(sigs)
+	}()
+
+	errs := make(chan error, 1)
+
+	go runSvc(rctx, errs, svc)
+
+	defer func() { close(errs) }()
+
+	select {
+	case err := <-errs:
+		rcancel()
+		return err
+
+	case <-sigs:
+		rcancel()
+
+		// Drain errs so it can be closed.
+		<-errs
+
+		sctx, cancel := context.WithTimeout(ctx, svc.Timeout())
+		defer cancel()
+
+		serrs := make(chan error, 1)
+		go func() {
+			serrs <- svc.Shutdown(sctx)
+			close(serrs)
+		}()
+
+		select {
+		case <-sctx.Done():
+			return sctx.Err()
+
+		case serr := <-serrs:
+			if cl, ok := svc.(closer); ok {
+				return cl.Close()
+			}
+
+			return serr
+		}
+	}
+
+	// Unreachable.
+	return nil
+}
+
+type service interface {
+	runner
 	Shutdown(ctx context.Context) error
 	Timeout() time.Duration
 }
 
-// Closer represents a service supporting force close when graceful is failed.
-type Closer interface {
+type runner interface {
+	Run(ctx context.Context) error
+}
+
+type closer interface {
 	Close() error
 }
 
-// Service is a basic process wrapper.
+// Service provides a way to wrap a blocking operation and run it.
+//
+// Once initialised, an instance of Service must not be changed.
+//
+// RunFn is assumed to be blocking.
+// ShutFn is expected to gracefully shutdown what RunFn started.
 type Service struct {
-	Cmd func(ctx context.Context) error
+	ShutTimeout time.Duration
+	RunFn       func(ctx context.Context) error
+	ShutFn      func(ctx context.Context) error
 }
 
-// NewService returns a new service created from a passed function.
-func NewService(f func(ctx context.Context) error) *Service {
-	return &Service{
-		Cmd: f,
-	}
-}
-
-// Run wraps Cmd.
+// Run runs s.
+//
+// The supplied implementation for RunFn should regularly check ctx if it's done or not.
+//
+// When ctx is cancelled, RunFn must return.
 func (s *Service) Run(ctx context.Context) error {
-	return s.Cmd(ctx)
-}
+	if s.RunFn == nil {
+		tck := time.NewTicker(100 * time.Millisecond)
+		defer func() { tck.Stop() }()
 
-// Daemon represents a service to run as a daemon.
-//
-// It must be initialized with New before use.
-type Daemon struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	proc    Runner
-	errChan chan error
-	sigChan chan os.Signal
-}
-
-// Options holds options for creating a daemon.
-//
-// ErrChan and SigChan, if set, must have buffer greater than 1.
-type Options struct {
-	Proc    Runner
-	ErrChan chan error
-	SigChan chan os.Signal
-}
-
-// New returns an instance of a Daemon.
-func New(proc Runner) *Daemon {
-	return NewWithOptions(&Options{Proc: proc})
-}
-
-// NewWithOptions creates an instance of Daemon based on given opt.
-func NewWithOptions(opt *Options) *Daemon {
-	if opt.Proc == nil {
-		panic(ErrInvalidProc)
-	}
-
-	var errChan chan error
-	if opt.ErrChan != nil {
-		if cap(opt.ErrChan) < 1 {
-			panic(errors.Wrap(ErrInvalidChan, "buffer size must greater than 0"))
-		}
-
-		errChan = opt.ErrChan
-	} else {
-		errChan = make(chan error, 1)
-	}
-
-	var sigChan chan os.Signal
-	if opt.SigChan != nil {
-		if cap(opt.SigChan) < 1 {
-			panic(errors.Wrap(ErrInvalidChan, "buffer size must greater than 0"))
-		}
-
-		sigChan = opt.SigChan
-	} else {
-		sigChan = make(chan os.Signal, 1)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	d := &Daemon{
-		ctx:     ctx,
-		cancel:  cancel,
-		proc:    opt.Proc,
-		errChan: errChan,
-		sigChan: sigChan,
-	}
-
-	return d
-}
-
-// Start starts Daemon and listens for signals to stop.
-func (d *Daemon) Start() error {
-	if d.proc == nil {
-		return ErrInvalidProc
-	}
-
-	signal.Notify(d.sigChan, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
-
-	// Run the service.
-	rctx, rcancel := context.WithCancel(d.ctx)
-	defer rcancel()
-
-	go runProcess(rctx, d.errChan, d.proc)
-
-	// Listen channels for events.
-	select {
-	case err := <-d.errChan:
-		d.cancel()
-		return err
-
-	case <-d.sigChan:
-		d.cancel()
-		if shut, ok := d.proc.(Shutdowner); ok {
-			ctx, cancel := context.WithTimeout(context.Background(), shut.Timeout())
-			defer cancel()
-
-			if err := shut.Shutdown(ctx); err != nil {
-				if cl, ok := shut.(Closer); ok {
-					if err := cl.Close(); err != nil {
-						return err
-					}
-				}
-
-				return err
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-tck.C:
+				continue
 			}
 		}
 	}
 
-	return nil
+	return s.RunFn(ctx)
 }
 
-// runProcess calls Run on the given Runner.
-func runProcess(ctx context.Context, errChan chan<- error, srv Runner) {
-	errChan <- srv.Run(ctx)
+// Shutdown shuts down s.
+//
+// Service is given a chance to finish any in-flight operations, for the duration of s.Timeout().
+// It's expected to succefully finish before ctx times out, and report success with nil.
+//
+// If it is not possible to finish succesfully, ctx times out, return a non-nil error.
+func (s *Service) Shutdown(ctx context.Context) error {
+	if s.ShutFn == nil {
+		return nil
+	}
+
+	return s.ShutFn(ctx)
+}
+
+// Timeout determines how long s.Shutdown() is given to finish.
+func (s *Service) Timeout() time.Duration {
+	return s.ShutTimeout
+}
+
+// ServiceClosing allows specifying a force-closing step when Service.Shutdown() returns an error.
+type ServiceClosing struct {
+	*Service
+	CloseFn func() error
+}
+
+// Close is the final chance for s to finish.
+//
+// It's expected to return as soon as possible.
+func (s *ServiceClosing) Close() error {
+	if s.CloseFn == nil {
+		return nil
+	}
+
+	return s.CloseFn()
+}
+
+func runSvc(ctx context.Context, errChan chan<- error, svc runner) {
+	errChan <- svc.Run(ctx)
 }
