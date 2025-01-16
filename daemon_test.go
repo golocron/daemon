@@ -39,18 +39,6 @@ func TestRunWithSigCn(t *testing.T) {
 			given: tcGiven{
 				svc: &Service{
 					ShutTimeout: 200 * time.Millisecond,
-					RunFn: func(ctx context.Context) error {
-						tck := time.NewTicker(50 * time.Millisecond)
-
-						for {
-							select {
-							case <-ctx.Done():
-								return ctx.Err()
-							case <-tck.C:
-								continue
-							}
-						}
-					},
 
 					ShutFn: func(ctx context.Context) error {
 						time.Sleep(400 * time.Millisecond)
@@ -71,18 +59,6 @@ func TestRunWithSigCn(t *testing.T) {
 			given: tcGiven{
 				svc: &Service{
 					ShutTimeout: 200 * time.Millisecond,
-					RunFn: func(ctx context.Context) error {
-						tck := time.NewTicker(50 * time.Millisecond)
-
-						for {
-							select {
-							case <-ctx.Done():
-								return ctx.Err()
-							case <-tck.C:
-								continue
-							}
-						}
-					},
 
 					ShutFn: func(ctx context.Context) error {
 						return errors.New("something_went_wrong")
@@ -102,18 +78,6 @@ func TestRunWithSigCn(t *testing.T) {
 				svc: &ServiceClosing{
 					Service: &Service{
 						ShutTimeout: 200 * time.Millisecond,
-						RunFn: func(ctx context.Context) error {
-							tck := time.NewTicker(50 * time.Millisecond)
-
-							for {
-								select {
-								case <-ctx.Done():
-									return ctx.Err()
-								case <-tck.C:
-									continue
-								}
-							}
-						},
 
 						ShutFn: func(ctx context.Context) error {
 							return errors.New("something_went_wrong_shutdown")
@@ -137,18 +101,6 @@ func TestRunWithSigCn(t *testing.T) {
 			given: tcGiven{
 				svc: &Service{
 					ShutTimeout: 200 * time.Millisecond,
-					RunFn: func(ctx context.Context) error {
-						tck := time.NewTicker(50 * time.Millisecond)
-
-						for {
-							select {
-							case <-ctx.Done():
-								return ctx.Err()
-							case <-tck.C:
-								continue
-							}
-						}
-					},
 				},
 
 				notifyFn: func(cn chan os.Signal) {

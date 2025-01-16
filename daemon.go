@@ -87,7 +87,7 @@ type closer interface {
 	Close() error
 }
 
-// Service provides a way to wrap a blocking operation and run it with Daemon.
+// Service provides a way to wrap a blocking operation and run it.
 //
 // Once initialised, an instance of Service must not be changed.
 //
@@ -99,14 +99,35 @@ type Service struct {
 	ShutFn      func(ctx context.Context) error
 }
 
+// Run runs s.
+//
+// The supplied implementation for RunFn should regularly check ctx if it's done or not.
+//
+// When ctx is cancelled, RunFn must return.
 func (s *Service) Run(ctx context.Context) error {
 	if s.RunFn == nil {
-		return nil
+		tck := time.NewTicker(100 * time.Millisecond)
+		defer func() { tck.Stop() }()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-tck.C:
+				continue
+			}
+		}
 	}
 
 	return s.RunFn(ctx)
 }
 
+// Shutdown shuts down s.
+//
+// Service is given a chance to finish any in-flight operations, for the duration of s.Timeout().
+// It's expected to succefully finish before ctx times out, and report success with nil.
+//
+// If it is not possible to finish succesfully, ctx times out, return a non-nil error.
 func (s *Service) Shutdown(ctx context.Context) error {
 	if s.ShutFn == nil {
 		return nil
@@ -115,15 +136,20 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	return s.ShutFn(ctx)
 }
 
+// Timeout determines how long s.Shutdown() is given to finish.
 func (s *Service) Timeout() time.Duration {
 	return s.ShutTimeout
 }
 
+// ServiceClosing allows specifying a force-closing step when Service.Shutdown() returns an error.
 type ServiceClosing struct {
 	*Service
 	CloseFn func() error
 }
 
+// Close is the final chance for s to finish.
+//
+// It's expected to return as soon as possible.
 func (s *ServiceClosing) Close() error {
 	if s.CloseFn == nil {
 		return nil
