@@ -14,6 +14,11 @@ import (
 // If graceful shutdown fails, and svc supports force-closing, it will be closed.
 func Run(ctx context.Context, svc service) error {
 	sigs := make(chan os.Signal, 1)
+
+	return runWithSigCn(ctx, svc, sigs)
+}
+
+func runWithSigCn(ctx context.Context, svc service, sigs chan os.Signal) error {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	rctx, rcancel := context.WithCancel(ctx)
@@ -39,18 +44,32 @@ func Run(ctx context.Context, svc service) error {
 	case <-sigs:
 		rcancel()
 
+		// Drain errs so it can be closed.
+		<-errs
+
 		sctx, cancel := context.WithTimeout(ctx, svc.Timeout())
 		defer cancel()
 
-		if err := svc.Shutdown(sctx); err != nil {
+		serrs := make(chan error, 1)
+		go func() {
+			serrs <- svc.Shutdown(sctx)
+			close(serrs)
+		}()
+
+		select {
+		case <-sctx.Done():
+			return sctx.Err()
+
+		case serr := <-serrs:
 			if cl, ok := svc.(closer); ok {
 				return cl.Close()
 			}
 
-			return err
+			return serr
 		}
 	}
 
+	// Unreachable.
 	return nil
 }
 
@@ -78,7 +97,6 @@ type Service struct {
 	ShutTimeout time.Duration
 	RunFn       func(ctx context.Context) error
 	ShutFn      func(ctx context.Context) error
-	CloseFn     func() error
 }
 
 func (s *Service) Run(ctx context.Context) error {
@@ -101,7 +119,12 @@ func (s *Service) Timeout() time.Duration {
 	return s.ShutTimeout
 }
 
-func (s *Service) Close() error {
+type ServiceClosing struct {
+	*Service
+	CloseFn func() error
+}
+
+func (s *ServiceClosing) Close() error {
 	if s.CloseFn == nil {
 		return nil
 	}
