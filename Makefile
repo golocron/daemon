@@ -12,6 +12,7 @@ bench: ## Run benchmarks
 
 cover: ## Show tests coverage
 	@if [ -f $(COVER_OUT) ]; then \
+		echo "Coverage:" \
 		go tool cover -func=$(COVER_OUT); \
 		rm -f $(COVER_OUT); \
 	else \
