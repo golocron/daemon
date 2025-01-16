@@ -32,9 +32,10 @@ func runWithSigCn(ctx context.Context, svc service, sigs chan os.Signal) error {
 
 	errs := make(chan error, 1)
 
-	go runSvc(rctx, errs, svc)
-
-	defer func() { close(errs) }()
+	go func() {
+		runSvc(rctx, errs, svc)
+		close(errs)
+	}()
 
 	select {
 	case err := <-errs:
@@ -44,7 +45,6 @@ func runWithSigCn(ctx context.Context, svc service, sigs chan os.Signal) error {
 	case <-sigs:
 		rcancel()
 
-		// Drain errs so it can be closed.
 		<-errs
 
 		sctx, cancel := context.WithTimeout(ctx, svc.Timeout())
@@ -61,8 +61,10 @@ func runWithSigCn(ctx context.Context, svc service, sigs chan os.Signal) error {
 			return sctx.Err()
 
 		case serr := <-serrs:
-			if cl, ok := svc.(closer); ok {
-				return cl.Close()
+			if serr != nil {
+				if cl, ok := svc.(closer); ok {
+					return cl.Close()
+				}
 			}
 
 			return serr
