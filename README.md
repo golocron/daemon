@@ -1,10 +1,10 @@
 # daemon
 
-daemon provides a simple way to run anything as a service on Linux.
+daemon provides a simple way to a blocking service and shut it down gracefully.
 
 
 ## Install
 
 ```bash
-go get github.com/golocron/daemon/v2@latest
+go get github.com/golocron/daemon/v2
 ```
