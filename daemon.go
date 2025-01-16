@@ -45,7 +45,11 @@ func runWithSigCn(ctx context.Context, svc service, sigs chan os.Signal) error {
 	case <-sigs:
 		rcancel()
 
-		<-errs
+		// Check if Run has returned.
+		select {
+		case <-errs:
+		default:
+		}
 
 		sctx, cancel := context.WithTimeout(ctx, svc.Timeout())
 		defer cancel()
@@ -102,10 +106,6 @@ type Service struct {
 }
 
 // Run runs s.
-//
-// The supplied implementation for RunFn should regularly check ctx if it's done or not.
-//
-// When ctx is cancelled, RunFn must return.
 func (s *Service) Run(ctx context.Context) error {
 	if s.RunFn == nil {
 		tck := time.NewTicker(100 * time.Millisecond)
